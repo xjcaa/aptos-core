@@ -11,7 +11,7 @@ use crate::{
     tests::{
         mocks::{
             create_mock_db_writer, create_mock_executor, create_mock_reader_writer,
-            create_mock_receiver, MockChunkExecutor,
+            create_mock_receiver, MockChunkExecutor, MockMetadataStorage,
         },
         utils::{
             create_epoch_ending_ledger_info, create_event, create_output_list_with_proof,
@@ -278,7 +278,7 @@ async fn test_initialize_state_synchronizer() {
         .unwrap();
     assert_matches!(
         commit_listener.select_next_some().await,
-        CommitNotification::CommittedStates(_)
+        CommitNotification::CommittedStateSnapshot(_)
     );
 }
 
@@ -403,13 +403,10 @@ async fn test_save_states_completion() {
         )
         .unwrap();
 
-    // Save a state chunk and verify we get a commit notification
+    // Save multiple state chunks (including the last chunk)
     storage_synchronizer
         .save_state_values(0, create_state_value_chunk_with_proof(false))
         .unwrap();
-    verify_state_commit_notification(&mut commit_listener, false, None).await;
-
-    // Save a state chunk that is the last chunk
     storage_synchronizer
         .save_state_values(1, create_state_value_chunk_with_proof(true))
         .unwrap();
@@ -420,10 +417,9 @@ async fn test_save_states_completion() {
         events: vec![expected_event.clone()],
         transactions: vec![expected_transaction.clone()],
     };
-    verify_state_commit_notification(
+    verify_snapshot_commit_notification(
         &mut commit_listener,
-        true,
-        Some(expected_committed_transactions.clone()),
+        expected_committed_transactions.clone(),
     )
     .await;
 
@@ -536,7 +532,7 @@ fn create_storage_synchronizer(
     ErrorNotificationListener,
     Arc<Mutex<EventSubscriptionService>>,
     MempoolNotificationListener,
-    StorageSynchronizer<MockChunkExecutor>,
+    StorageSynchronizer<MockChunkExecutor, MockMetadataStorage>,
     JoinHandle<()>,
     JoinHandle<()>,
 ) {
@@ -566,6 +562,7 @@ fn create_storage_synchronizer(
         error_notification_sender,
         event_subscription_service.clone(),
         mempool_notification_handler,
+        MockMetadataStorage::new(),
         mock_reader_writer,
         None,
     );
@@ -581,17 +578,15 @@ fn create_storage_synchronizer(
     )
 }
 
-/// Verifies that the expected state commit notification is received by the listener
-async fn verify_state_commit_notification(
+/// Verifies that the expected snapshot commit notification is received by the listener
+async fn verify_snapshot_commit_notification(
     commit_listener: &mut CommitNotificationListener,
-    expected_all_synced: bool,
-    expected_committed_transactions: Option<CommittedTransactions>,
+    expected_committed_transactions: CommittedTransactions,
 ) {
-    let CommitNotification::CommittedStates(committed_states) =
+    let CommitNotification::CommittedStateSnapshot(committed_snapshot) =
         commit_listener.select_next_some().await;
-    assert_eq!(committed_states.all_states_synced, expected_all_synced);
     assert_eq!(
-        committed_states.committed_transaction,
+        committed_snapshot.committed_transaction,
         expected_committed_transactions
     );
 }
@@ -609,7 +604,9 @@ async fn verify_error_notification(
 /// Verifies that no pending data remains in the storage synchronizer.
 /// Note: due to asynchronous execution, we might need to wait some
 /// time for the pipelines to drain.
-fn verify_no_pending_data(storage_synchronizer: &StorageSynchronizer<MockChunkExecutor>) {
+fn verify_no_pending_data(
+    storage_synchronizer: &StorageSynchronizer<MockChunkExecutor, MockMetadataStorage>,
+) {
     let max_drain_time_secs = 10;
     for _ in 0..max_drain_time_secs {
         if !storage_synchronizer.pending_storage_data() {

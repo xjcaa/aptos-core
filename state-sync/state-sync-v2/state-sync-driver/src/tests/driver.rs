@@ -3,9 +3,12 @@
 
 use crate::{
     driver_factory::DriverFactory,
-    tests::utils::{
-        create_event, create_ledger_info_at_version, create_transaction,
-        verify_mempool_and_event_notification,
+    tests::{
+        mocks::MockMetadataStorage,
+        utils::{
+            create_event, create_ledger_info_at_version, create_transaction,
+            verify_mempool_and_event_notification,
+        },
     },
 };
 use aptos_config::config::{NodeConfig, RoleType};
@@ -284,6 +287,9 @@ async fn create_driver_for_tests(
         None,
     );
 
+    // Create a test metadata storage
+    let metadata_storage = MockMetadataStorage::new();
+
     // Create and spawn the driver
     let driver_factory = DriverFactory::create_and_spawn_driver(
         false,
@@ -292,6 +298,7 @@ async fn create_driver_for_tests(
         db_rw,
         chunk_executor,
         mempool_notifier,
+        metadata_storage,
         consensus_listener,
         event_subscription_service,
         aptos_data_client,

@@ -8,7 +8,7 @@ use crate::{
     tests::{
         mocks::{
             create_mock_db_reader, create_mock_streaming_client, create_ready_storage_synchronizer,
-            MockStorageSynchronizer, MockStreamingClient,
+            MockMetadataStorage, MockStorageSynchronizer, MockStreamingClient,
         },
         utils::{
             create_data_stream_listener, create_empty_epoch_state, create_epoch_ending_ledger_info,
@@ -560,7 +560,7 @@ fn create_bootstrapper(
     driver_configuration: DriverConfiguration,
     mock_streaming_client: MockStreamingClient,
     expect_reset_executor: bool,
-) -> Bootstrapper<MockStorageSynchronizer, MockStreamingClient> {
+) -> Bootstrapper<MockMetadataStorage, MockStorageSynchronizer, MockStreamingClient> {
     // Initialize the logger for tests
     aptos_logger::Logger::init_for_testing();
 
@@ -581,6 +581,7 @@ fn create_bootstrapper(
 
     Bootstrapper::new(
         driver_configuration,
+        MockMetadataStorage::new(),
         mock_streaming_client,
         Arc::new(mock_database_reader),
         mock_storage_synchronizer,
@@ -591,7 +592,11 @@ fn create_bootstrapper(
 /// is true this method will continue to drive the bootstrapper until
 /// bootstrapping is complete.
 async fn drive_progress(
-    bootstrapper: &mut Bootstrapper<MockStorageSynchronizer, MockStreamingClient>,
+    bootstrapper: &mut Bootstrapper<
+        MockMetadataStorage,
+        MockStorageSynchronizer,
+        MockStreamingClient,
+    >,
     global_data_summary: &GlobalDataSummary,
     until_bootstrapped: bool,
 ) -> Result<(), Error> {
@@ -610,7 +615,11 @@ async fn drive_progress(
 /// the given bootstrapper and inserts a verified epoch ending ledger
 /// info at the specified `highest_version_to_insert` (if provided).
 fn manipulate_verified_epoch_states(
-    bootstrapper: &mut Bootstrapper<MockStorageSynchronizer, MockStreamingClient>,
+    bootstrapper: &mut Bootstrapper<
+        MockMetadataStorage,
+        MockStorageSynchronizer,
+        MockStreamingClient,
+    >,
     fetched_epochs: bool,
     verified_waypoint: bool,
     highest_version_to_insert: Option<Version>,

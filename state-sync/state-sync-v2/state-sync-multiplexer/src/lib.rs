@@ -13,7 +13,9 @@ use executor_types::ChunkExecutorTrait;
 use futures::executor::block_on;
 use mempool_notifications::MempoolNotificationSender;
 use network::protocols::network::AppConfig;
-use state_sync_driver::driver_factory::DriverFactory;
+use state_sync_driver::{
+    driver_factory::DriverFactory, metadata_storage::PersistentMetadataStorage,
+};
 use state_sync_v1::{
     bootstrapper::StateSyncBootstrapper,
     network::{StateSyncEvents, StateSyncSender},
@@ -101,6 +103,7 @@ impl StateSyncMultiplexer {
             .enable_state_sync_v2;
         if activate_state_sync_v2 {
             // Start the state sync v2 driver
+            let metadata_storage = PersistentMetadataStorage::new(node_config.storage.dir());
             state_sync_v2 = Some(DriverFactory::create_and_spawn_driver(
                 true,
                 node_config,
@@ -108,6 +111,7 @@ impl StateSyncMultiplexer {
                 storage,
                 chunk_executor,
                 mempool_notifier,
+                metadata_storage,
                 consensus_listener,
                 event_subscription_service,
                 aptos_data_client,
