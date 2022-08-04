@@ -13,10 +13,11 @@ use crate::{
 use aptos_config::config::NodeConfig;
 use aptos_data_client::aptosnet::AptosNetDataClient;
 use aptos_infallible::Mutex;
+use aptos_types::move_resource::MoveStorage;
 use aptos_types::waypoint::Waypoint;
 use consensus_notifications::ConsensusNotificationListener;
 use data_streaming_service::streaming_client::StreamingServiceClient;
-use event_notifications::EventSubscriptionService;
+use event_notifications::{EventNotificationSender, EventSubscriptionService};
 use executor_types::ChunkExecutorTrait;
 use futures::channel::mpsc;
 use mempool_notifications::MempoolNotificationSender;
@@ -43,10 +44,25 @@ impl DriverFactory {
         chunk_executor: Arc<ChunkExecutor>,
         mempool_notification_sender: MempoolNotifier,
         consensus_listener: ConsensusNotificationListener,
-        event_subscription_service: EventSubscriptionService,
+        mut event_subscription_service: EventSubscriptionService,
         aptos_data_client: AptosNetDataClient,
         streaming_service_client: StreamingServiceClient,
     ) -> Self {
+        // Notify subscribers of the initial on-chain config values
+        match (&*storage.reader).fetch_latest_state_checkpoint_version() {
+            Ok(synced_version) => {
+                if let Err(error) =
+                    event_subscription_service.notify_initial_configs(synced_version)
+                {
+                    panic!(
+                        "Failed to notify subscribers of initial on-chain configs: {:?}",
+                        error
+                    )
+                }
+            }
+            Err(error) => panic!("Failed to fetch the initial synced version: {:?}", error),
+        }
+
         // Create the notification handlers
         let (client_notification_sender, client_notification_receiver) = mpsc::unbounded();
         let client_notification_listener =
