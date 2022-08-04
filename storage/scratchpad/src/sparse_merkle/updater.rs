@@ -37,6 +37,13 @@ enum InMemSubTreeInfo<V> {
     Empty,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) enum UpdateOp<'a, V> {
+    Write(&'a V),
+    MaybeDelete,
+    Delete
+}
+
 impl<V: Clone + CryptoHash> InMemSubTreeInfo<V> {
     fn create_leaf_with_update(update: (HashValue, &V), generation: u64) -> Self {
         let subtree = InMemSubTree::new_leaf_with_value(update.0, (*update.1).clone(), generation);
@@ -89,7 +96,7 @@ impl<V: Clone + CryptoHash> InMemSubTreeInfo<V> {
         match (&left, &right) {
             (Self::Empty, Self::Leaf { .. }) => right,
             (Self::Leaf { .. }, Self::Empty) => left,
-            (Self::Empty, Self::Empty) => unreachable!(),
+            (Self::Empty, Self::Empty) => Self::Empty,
             _ => InMemSubTreeInfo::create_internal(left, right, generation),
         }
     }
@@ -270,14 +277,14 @@ impl<'a, V: Clone + CryptoHash> SubTreeInfo<'a, V> {
 pub struct SubTreeUpdater<'a, V> {
     depth: usize,
     info: SubTreeInfo<'a, V>,
-    updates: &'a [(HashValue, &'a V)],
+    updates: &'a [(HashValue, UpdateOp<'a, V>)],
     generation: u64,
 }
 
 impl<'a, V: Send + Sync + Clone + CryptoHash> SubTreeUpdater<'a, V> {
     pub(crate) fn update(
         root: InMemSubTree<V>,
-        updates: &'a [(HashValue, &'a V)],
+        updates: &'a [(HashValue, UpdateOp<'a, V>)],
         proof_reader: &'a impl ProofRead,
         generation: u64,
     ) -> Result<InMemSubTree<V>> {
@@ -298,7 +305,7 @@ impl<'a, V: Send + Sync + Clone + CryptoHash> SubTreeUpdater<'a, V> {
 
         let generation = self.generation;
         let depth = self.depth;
-        match self.maybe_end_recursion() {
+        match self.maybe_end_recursion()? {
             Either::A(ended) => Ok(ended),
             Either::B(myself) => {
                 let (left, right) = myself.into_children(proof_reader)?;
@@ -316,30 +323,83 @@ impl<'a, V: Send + Sync + Clone + CryptoHash> SubTreeUpdater<'a, V> {
         }
     }
 
-    fn maybe_end_recursion(self) -> Either<InMemSubTreeInfo<V>, Self> {
-        match self.updates.len() {
+    fn maybe_end_recursion(self) -> Result<Either<InMemSubTreeInfo<V>, Self>> {
+        Ok(match self.updates.len() {
             0 => Either::A(self.info.materialize(self.generation)),
-            1 => match &self.info {
-                SubTreeInfo::InMem(in_mem_info) => match in_mem_info {
-                    InMemSubTreeInfo::Empty => Either::A(
-                        InMemSubTreeInfo::create_leaf_with_update(self.updates[0], self.generation),
-                    ),
-                    InMemSubTreeInfo::Leaf { key, .. } => Either::or(
-                        *key == self.updates[0].0,
-                        InMemSubTreeInfo::create_leaf_with_update(self.updates[0], self.generation),
-                        self,
-                    ),
+            1 => {
+                let (key_to_update, update_op) = &self.updates[0];
+                match &self.info {
+                    SubTreeInfo::InMem(in_mem_info) => match in_mem_info {
+                        InMemSubTreeInfo::Empty => {
+                            match update_op {
+                                UpdateOp::Write(value) =>
+                                    Either::A(InMemSubTreeInfo::create_leaf_with_update((*key_to_update, value), self.generation)),
+                                UpdateOp::Delete =>
+                                    return Err(UpdateError::DeleteAbsentKey {
+                                        key: *key_to_update
+                                    }),
+                                // Before this batch, the key does not exist.
+                                UpdateOp::MaybeDelete =>
+                                    Either::A(self.info.materialize(self.generation))
+                            }
+                        },
+                        InMemSubTreeInfo::Leaf { key, .. } => {
+                            match update_op {
+                                UpdateOp::Write(value) =>
+                                    Either::or(
+                                        key == key_to_update,
+                                        InMemSubTreeInfo::create_leaf_with_update((*key_to_update, value), self.generation),
+                                        self,
+                                    ),
+                                UpdateOp::Delete =>
+                                    if key == key_to_update {
+                                        Either::A(InMemSubTreeInfo::Empty)
+                                    } else {
+                                        return Err(UpdateError::DeleteAbsentKey {
+                                            key: *key_to_update
+                                        });
+                                    },
+                                // Before this batch, the key does not exist.
+                                UpdateOp::MaybeDelete =>
+                                    if key == key_to_update {
+                                        Either::A(InMemSubTreeInfo::Empty)
+                                    } else {
+                                        Either::A(self.info.materialize(self.generation))
+                                    }
+                            }
+                        }
+                        _ => Either::B(self),
+                    },
+                    SubTreeInfo::Persisted(PersistedSubTreeInfo::Leaf { leaf }) => {
+                        match update_op {
+                            UpdateOp::Write(value) =>
+                            Either::or(
+                                leaf.key() == *key_to_update,
+                                InMemSubTreeInfo::create_leaf_with_update((*key_to_update, value), self.generation),
+                                self,
+                            ),
+                            UpdateOp::Delete =>
+                                if leaf.key() == *key_to_update {
+                                    Either::A(InMemSubTreeInfo::Empty)
+                                } else {
+                                    return Err(UpdateError::DeleteAbsentKey {
+                                        key: *key_to_update
+                                    });
+                                },
+                            // Before this batch, the key does not exist.
+                            UpdateOp::MaybeDelete =>
+                                if leaf.key() == *key_to_update {
+                                    Either::A(InMemSubTreeInfo::Empty)
+                                } else {
+                                    Either::A(self.info.materialize(self.generation))
+                                },
+                        }
+                    }
                     _ => Either::B(self),
-                },
-                SubTreeInfo::Persisted(PersistedSubTreeInfo::Leaf { leaf }) => Either::or(
-                    leaf.key() == self.updates[0].0,
-                    InMemSubTreeInfo::create_leaf_with_update(self.updates[0], self.generation),
-                    self,
-                ),
-                _ => Either::B(self),
-            },
+                }
+            }
             _ => Either::B(self),
-        }
+        })
     }
 
     fn into_children(self, proof_reader: &'a impl ProofRead) -> Result<(Self, Self)> {

@@ -45,7 +45,7 @@ fn test_replace_in_mem_leaf() {
     let new_value: StateValue = vec![1, 2, 3].into();
     let root_hash = hash_leaf(key, new_value.hash());
     let updated = smt
-        .batch_update(vec![(key, &new_value)], &ProofReader::default())
+        .batch_update(vec![(key, Some(&new_value))], &ProofReader::default())
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -62,7 +62,7 @@ fn test_split_in_mem_leaf() {
 
     let root_hash = hash_internal(hash_leaf(key1, value1_hash), hash_leaf(key2, value2.hash()));
     let updated = smt
-        .batch_update(vec![(key2, &value2)], &ProofReader::default())
+        .batch_update(vec![(key2, Some(&value2))], &ProofReader::default())
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -88,7 +88,7 @@ fn test_insert_at_in_mem_empty() {
 
     let root_hash = hash_internal(internal_hash, hash_leaf(key3, value3.hash()));
     let updated = smt
-        .batch_update(vec![(key3, &value3)], &ProofReader::default())
+        .batch_update(vec![(key3, Some(&value3))], &ProofReader::default())
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -105,7 +105,7 @@ fn test_replace_persisted_leaf() {
     let new_value: StateValue = vec![1, 2, 3].into();
     let root_hash = hash_leaf(key, new_value.hash());
     let updated = smt
-        .batch_update(vec![(key, &new_value)], &proof_reader)
+        .batch_update(vec![(key, Some(&new_value))], &proof_reader)
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -125,7 +125,7 @@ fn test_split_persisted_leaf() {
 
     let root_hash = hash_internal(leaf1.hash(), hash_leaf(key2, value2.hash()));
     let updated = smt
-        .batch_update(vec![(key2, &value2)], &proof_reader)
+        .batch_update(vec![(key2, Some(&value2))], &proof_reader)
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -148,7 +148,7 @@ fn test_insert_at_persisted_empty() {
 
     let root_hash = hash_internal(sibling_hash, hash_leaf(key3, value3.hash()));
     let updated = smt
-        .batch_update(vec![(key3, &value3)], &proof_reader)
+        .batch_update(vec![(key3, Some(&value3))], &proof_reader)
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -202,7 +202,7 @@ fn test_update_256_siblings_in_proof() {
     let proof_reader = ProofReader::new(vec![(key1, proof_of_key1)]);
     let smt = SparseMerkleTree::new(old_root_hash);
     let new_smt = smt
-        .batch_update(vec![(key1, &new_value1)], &proof_reader)
+        .batch_update(vec![(key1, Some(&new_value1))], &proof_reader)
         .unwrap();
 
     let new_value1_hash = new_value1.hash();
@@ -278,7 +278,7 @@ fn test_update() {
     // Create the old tree and update the tree with new value and proof.
     let proof_reader = ProofReader::new(vec![(key4, proof)]);
     let smt1 = SparseMerkleTree::new(old_root_hash)
-        .batch_update(vec![(key4, &value4)], &proof_reader)
+        .batch_update(vec![(key4, Some(&value4))], &proof_reader)
         .unwrap();
 
     // Now smt1 should look like this:
@@ -319,7 +319,7 @@ fn test_update() {
     let value1 = StateValue::from(String::from("test_val1111").into_bytes());
     let proof_reader = ProofReader::new(vec![(key1, proof)]);
     let smt2 = smt1
-        .batch_update(vec![(key1, &value1)], &proof_reader)
+        .batch_update(vec![(key1, Some(&value1))], &proof_reader)
         .unwrap();
 
     // smt2 looks like:
@@ -355,7 +355,7 @@ fn test_update() {
     // key4 already exists in the tree.
     let proof_reader = ProofReader::default();
     let smt22 = smt1
-        .batch_update(vec![(key4, &value4)], &proof_reader)
+        .batch_update(vec![(key4, Some(&value4))], &proof_reader)
         .unwrap();
 
     // smt22 is like:
@@ -411,7 +411,7 @@ static PROOF_READER: Lazy<ProofReader> = Lazy::new(|| {
 });
 
 fn update(smt: &SparseMerkleTree) -> SparseMerkleTree {
-    smt.batch_update(vec![(*KEY, &VALUE)], &*PROOF_READER)
+    smt.batch_update(vec![(*KEY, Some(&VALUE))], &*PROOF_READER)
         .unwrap()
 }
 
@@ -549,7 +549,7 @@ fn test_drop() {
             .batch_update(
                 vec![(
                     HashValue::zero(),
-                    &StateValue::from(String::from("test_val").into_bytes()),
+                    Some(&StateValue::from(String::from("test_val").into_bytes())),
                 )],
                 &proof_reader,
             )

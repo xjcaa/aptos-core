@@ -106,16 +106,18 @@ pub struct NaiveSmt {
 
 impl NaiveSmt {
     pub fn new<V: CryptoHash>(leaves: &[(HashValue, &V)]) -> Self {
-        Self::default().update(leaves)
+        Self::default().update(leaves.iter().map(|(k, v)| (*k, Some(*v))).collect::<Vec<_>>().as_slice())
     }
 
-    pub fn update<V: CryptoHash>(self, updates: &[(HashValue, &V)]) -> Self {
+    pub fn update<V: CryptoHash>(self, updates: &[(HashValue, Option<&V>)]) -> Self {
         let mut leaves = self.leaves.into_iter().collect::<BTreeMap<_, _>>();
-        let mut new_leaves = updates
-            .iter()
-            .map(|(address, value)| (*address, value.hash()))
-            .collect::<BTreeMap<_, _>>();
-        leaves.append(&mut new_leaves);
+        for (key, value_option) in updates {
+            if let Some(value) = value_option {
+                leaves.insert(*key, value.hash());
+            } else {
+                leaves.remove(key).unwrap();
+            }
+        }
 
         Self {
             leaves: leaves.into_iter().collect::<Vec<_>>(),
