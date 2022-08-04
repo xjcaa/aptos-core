@@ -50,6 +50,13 @@ FORGE_RUNNER_TPS_THRESHOLD=${FORGE_RUNNER_TPS_THRESHOLD:-400}
 [ "$FORGE_NAMESPACE_KEEP" = "true" ] && KEEP_ARGS="--keep"
 [ "$FORGE_ENABLE_HAPROXY" = "true" ] && ENABLE_HAPROXY_ARGS="--enable-haproxy"
 
+print_output_files() {
+  echo "FORGE_OUTPUT: ${FORGE_OUTPUT}"
+  echo "FORGE_REPORT: ${FORGE_REPORT}"
+  echo "FORGE_PRE_COMMENT: ${FORGE_PRE_COMMENT}"
+  echo "FORGE_COMMENT: ${FORGE_COMMENT}"
+}
+
 # Set variables for o11y resource locations depending on the type of cluster that is running Forge
 set_o11y_resources() {
     if echo $FORGE_CLUSTER_NAME | grep "forge"; then
@@ -85,8 +92,8 @@ set_image_tag() {
         for i in $(seq 0 $commit_threshold); do
             IMAGE_TAG_DEFAULT=$(git rev-parse HEAD~$i)
             echo "Trying tag: ${IMAGE_TAG_DEFAULT}"
-            git log --format=%B -n 1 $IMAGE_TAG_DEFAULT
-            img=$(aws ecr describe-images --repository-name="aptos/validator" --image-ids=imageTag=$IMAGE_TAG_DEFAULT)
+            git --no-pager log --format=%B -n 1 $IMAGE_TAG_DEFAULT
+            img=$(aws ecr describe-images --repository-name="aptos/validator" --image-ids=imageTag=$IMAGE_TAG_DEFAULT 2> /dev/null)
             if [ "$?" -eq 0 ]; then
                 echo "Image tag exists. Using tag: ${IMAGE_TAG_DEFAULT}"
                 IMAGE_TAG=$IMAGE_TAG_DEFAULT
@@ -99,7 +106,7 @@ set_image_tag() {
             exit 1
         fi
     else
-        img=$(aws ecr describe-images --repository-name="aptos/validator" --image-ids=imageTag=$IMAGE_TAG)
+        img=$(aws ecr describe-images --repository-name="aptos/validator" --image-ids=imageTag=$IMAGE_TAG 2> /dev/null)
         if [ "$?" -ne 0 ]; then
             echo "IMAGE_TAG does not exist in ECR: ${IMAGE_TAG}. Make sure your commit has been pushed to GitHub previously."
             echo "If you're trying to run the code from your PR, apply the label 'CICD:build-images' and wait for the builds to finish."
@@ -145,6 +152,8 @@ get_dashboard_link() {
     FORGE_DASHBOARD_LINK="${GRAFANA_BASE_URL}&var-namespace=${FORGE_NAMESPACE}&var-chain_name=${FORGE_CHAIN_NAME}${GRAFANA_TIME_FILTER}"
 }
 
+print_output_files
+
 # determine cluster name from kubectl context and set o11y resources
 FORGE_CLUSTER_NAME=$(kubectl config current-context | grep -oE 'aptos.*')
 echo "Using cluster ${FORGE_CLUSTER_NAME} from current kubectl context"
@@ -185,7 +194,7 @@ if [ "$FORGE_RUNNER_MODE" = "local" ]; then
     # more file descriptors for heavy txn generation
     ulimit -n 1048576
 
-    cargo run -p forge-cli -- --suite $FORGE_TEST_SUITE --workers-per-ac 10 --avg-tps $FORGE_RUNNER_TPS_THRESHOLD \
+    cargo run -p forge-cli -- --suite $FORGE_TEST_SUITE --avg-tps $FORGE_RUNNER_TPS_THRESHOLD \
         --max-latency-ms $LOCAL_P99_LATENCY_MS_THRESHOLD --duration-secs $FORGE_RUNNER_DURATION_SECS  \
         test k8s-swarm \
         --image-tag $IMAGE_TAG \
@@ -295,9 +304,9 @@ get_validator_logs_link
 if [ "$FORGE_EXIT_CODE" = "0" ]; then
     FORGE_COMMENT_HEADER="### :white_check_mark: Forge test success on \`${IMAGE_TAG}\`"
 elif [ "$FORGE_EXIT_CODE" = "2" ]; then
-    FORGE_COMMENT_HEADER"### :x: Forge test perf regression on \`${IMAGE_TAG}\`"
+    FORGE_COMMENT_HEADER="### :x: Forge test perf regression on \`${IMAGE_TAG}\`"
 elif [ "$FORGE_EXIT_CODE" = "10" ]; then
-    FORGE_COMMENT_HEADER"### :thought_balloon: Forge test preempted on \`${IMAGE_TAG}\`"
+    FORGE_COMMENT_HEADER="### :thought_balloon: Forge test preempted on \`${IMAGE_TAG}\`"
     # don't actually fail if tests pre-empted
     FORGE_EXIT_CODE=0
 else
@@ -316,6 +325,8 @@ EOF
 echo "=====START FORGE COMMENT====="
 cat $FORGE_COMMENT
 echo "=====END FORGE COMMENT====="
+
+print_output_files
 
 echo "Forge exit with: $FORGE_EXIT_CODE"
 

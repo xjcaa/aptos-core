@@ -3,6 +3,11 @@
 
 use crate::generate_traffic;
 use forge::{NetworkContext, NetworkTest, Result, Test};
+use rand::{
+    prelude::{IteratorRandom, StdRng},
+    rngs::OsRng,
+    Rng, SeedableRng,
+};
 
 pub struct PerformanceBenchmark;
 
@@ -28,6 +33,12 @@ impl NetworkTest for PerformanceBenchmark {
             .collect::<Vec<_>>();
 
         let all_nodes = [&all_validators[..], &all_fullnodes[..]].concat();
+
+        // check metrics of a random validator
+        let mut rng = StdRng::from_seed(OsRng.gen());
+        let validator_id = all_validators.iter().choose(&mut rng).unwrap();
+        let validator = ctx.swarm().validator(*validator_id).unwrap();
+        let _validator_metric_port = validator.expose_metric()?;
 
         // Generate some traffic
         let txn_stat = generate_traffic(ctx, &all_nodes, duration, 1)?;

@@ -451,17 +451,16 @@ pub async fn nodes_healthcheck(nodes: Vec<&K8sNode>) -> Result<Vec<String>> {
         let node_name = node.name().to_string();
         let check = aptos_retrier::retry_async(k8s_wait_nodes_strategy(), || {
             Box::pin(async move {
-                info!("Attempting health check: {:?}", node);
                 match node.rest_client().get_ledger_information().await {
                     Ok(res) => {
                         let version = res.inner().version;
-                        info!("Node {} @ version {}", node.name(), version);
                         // ensure a threshold liveness for each node
                         // we want to guarantee node is making progress without spinning too long
                         if version > 100 {
                             info!("Node {} healthy @ version {} > 100", node.name(), version);
                             return Ok(());
                         }
+                        info!("Node {} @ version {}", node.name(), version);
                         bail!(
                             "Node {} unhealthy: REST API returned version 0",
                             node.name()
