@@ -16,15 +16,28 @@ on:
 jobs:
   # run two concurrent forge test jobs on the same cluster
   # they must use different namespaces, or they will preempt each other
-  run-forge-0:
+  run-optimal-performance-forge:
     uses: ./.github/workflows/run-forge.yaml
     secrets: inherit
     with:
       FORGE_NAMESPACE: forge-continuous-0
       FORGE_CLUSTER_NAME: aptos-forge-1
+      # Land blocking is what we run on all PR land
+      FORGE_TEST_SUITE: land_blocking
       FORGE_RUNNER_DURATION_SECS: 1500  # Run for 45 minutes for now
       # We expect slightly lower tps on longer timeline
       FORGE_RUNNER_TPS_THRESHOLD: 5000
+  run-chaos-performance-forge:
+    uses: ./.github/workflows/run-forge.yaml
+    secrets: inherit
+    with:
+      FORGE_NAMESPACE: forge-continuous-0
+      FORGE_CLUSTER_NAME: aptos-forge-1
+      # Pre release includes chaos
+      FORGE_TEST_SUITE: pre_release
+      FORGE_RUNNER_DURATION_SECS: 1500  # Run for 45 minutes for now
+      # We expect way lower tps on chaos nodes
+      FORGE_RUNNER_TPS_THRESHOLD: 3000
   # Example new forge nightly test, simply add this block below to schedule your own forge job
   # run-forge-example:
   #   uses: ./.github/workflows/run-forge.yaml
